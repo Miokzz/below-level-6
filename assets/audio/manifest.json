@@ -1,0 +1,324 @@
+{
+  "ambience": {
+    "duration": 24.0,
+    "channels": 2,
+    "peak": 0.53,
+    "rms": 0.1167,
+    "loop": true
+  },
+  "hvac": {
+    "duration": 16.0,
+    "channels": 1,
+    "peak": 0.54,
+    "rms": 0.1098,
+    "loop": true
+  },
+  "electrical": {
+    "duration": 16.0,
+    "channels": 1,
+    "peak": 0.55,
+    "rms": 0.2981,
+    "loop": true
+  },
+  "servers": {
+    "duration": 16.0,
+    "channels": 1,
+    "peak": 0.5,
+    "rms": 0.1017,
+    "loop": true
+  },
+  "drone": {
+    "duration": 32.0,
+    "channels": 2,
+    "peak": 0.48,
+    "rms": 0.1895,
+    "loop": true
+  },
+  "step_concrete_1": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.481,
+    "rms": 0.0595,
+    "loop": false
+  },
+  "step_concrete_2": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.326,
+    "rms": 0.052,
+    "loop": false
+  },
+  "step_concrete_3": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.393,
+    "rms": 0.0587,
+    "loop": false
+  },
+  "step_concrete_4": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.476,
+    "rms": 0.059,
+    "loop": false
+  },
+  "step_metal_1": {
+    "duration": 0.54,
+    "channels": 1,
+    "peak": 0.517,
+    "rms": 0.0646,
+    "loop": false
+  },
+  "step_metal_2": {
+    "duration": 0.54,
+    "channels": 1,
+    "peak": 0.457,
+    "rms": 0.06,
+    "loop": false
+  },
+  "step_metal_3": {
+    "duration": 0.54,
+    "channels": 1,
+    "peak": 0.478,
+    "rms": 0.0521,
+    "loop": false
+  },
+  "step_metal_4": {
+    "duration": 0.54,
+    "channels": 1,
+    "peak": 0.54,
+    "rms": 0.0655,
+    "loop": false
+  },
+  "step_grating_1": {
+    "duration": 0.54,
+    "channels": 1,
+    "peak": 0.535,
+    "rms": 0.0603,
+    "loop": false
+  },
+  "step_grating_2": {
+    "duration": 0.54,
+    "channels": 1,
+    "peak": 0.444,
+    "rms": 0.0566,
+    "loop": false
+  },
+  "step_grating_3": {
+    "duration": 0.54,
+    "channels": 1,
+    "peak": 0.362,
+    "rms": 0.0475,
+    "loop": false
+  },
+  "step_grating_4": {
+    "duration": 0.54,
+    "channels": 1,
+    "peak": 0.54,
+    "rms": 0.0622,
+    "loop": false
+  },
+  "step_tile_1": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.54,
+    "rms": 0.0499,
+    "loop": false
+  },
+  "step_tile_2": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.382,
+    "rms": 0.0441,
+    "loop": false
+  },
+  "step_tile_3": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.34,
+    "rms": 0.0376,
+    "loop": false
+  },
+  "step_tile_4": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.475,
+    "rms": 0.0478,
+    "loop": false
+  },
+  "step_wet_1": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.406,
+    "rms": 0.0557,
+    "loop": false
+  },
+  "step_wet_2": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.452,
+    "rms": 0.0605,
+    "loop": false
+  },
+  "step_wet_3": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.522,
+    "rms": 0.0617,
+    "loop": false
+  },
+  "step_wet_4": {
+    "duration": 0.42,
+    "channels": 1,
+    "peak": 0.405,
+    "rms": 0.0533,
+    "loop": false
+  },
+  "chime": {
+    "duration": 2.4,
+    "channels": 1,
+    "peak": 0.533,
+    "rms": 0.1073,
+    "loop": false
+  },
+  "click": {
+    "duration": 0.22,
+    "channels": 1,
+    "peak": 0.22,
+    "rms": 0.0156,
+    "loop": false
+  },
+  "door": {
+    "duration": 3.7,
+    "channels": 1,
+    "peak": 0.52,
+    "rms": 0.1009,
+    "loop": false
+  },
+  "drag": {
+    "duration": 2.6,
+    "channels": 1,
+    "peak": 0.49,
+    "rms": 0.0485,
+    "loop": false
+  },
+  "radio": {
+    "duration": 0.65,
+    "channels": 1,
+    "peak": 0.352,
+    "rms": 0.0381,
+    "loop": false
+  },
+  "success": {
+    "duration": 1.8,
+    "channels": 1,
+    "peak": 0.45,
+    "rms": 0.0735,
+    "loop": false
+  },
+  "error": {
+    "duration": 1.8,
+    "channels": 1,
+    "peak": 0.45,
+    "rms": 0.0817,
+    "loop": false
+  },
+  "network": {
+    "duration": 1.8,
+    "channels": 1,
+    "peak": 0.45,
+    "rms": 0.0771,
+    "loop": false
+  },
+  "power": {
+    "duration": 5.0,
+    "channels": 1,
+    "peak": 0.52,
+    "rms": 0.1113,
+    "loop": false
+  },
+  "cooling": {
+    "duration": 5.0,
+    "channels": 1,
+    "peak": 0.51,
+    "rms": 0.0746,
+    "loop": false
+  },
+  "failure": {
+    "duration": 2.8,
+    "channels": 1,
+    "peak": 0.55,
+    "rms": 0.105,
+    "loop": false
+  },
+  "heartbeat": {
+    "duration": 1.4,
+    "channels": 1,
+    "peak": 0.369,
+    "rms": 0.0578,
+    "loop": false
+  },
+  "breath": {
+    "duration": 4.3,
+    "channels": 1,
+    "peak": 0.37,
+    "rms": 0.051,
+    "loop": false
+  },
+  "elevator": {
+    "duration": 14.0,
+    "channels": 1,
+    "peak": 0.51,
+    "rms": 0.1403,
+    "loop": true
+  },
+  "shutdown": {
+    "duration": 4.0,
+    "channels": 1,
+    "peak": 0.5,
+    "rms": 0.0654,
+    "loop": false
+  },
+  "radio_arrival": {
+    "duration": 10.803,
+    "channels": 1,
+    "peak": 0.64,
+    "rms": 0.0801,
+    "loop": false
+  },
+  "radio_cooling": {
+    "duration": 7.258,
+    "channels": 1,
+    "peak": 0.64,
+    "rms": 0.0852,
+    "loop": false
+  },
+  "radio_core": {
+    "duration": 9.923,
+    "channels": 1,
+    "peak": 0.64,
+    "rms": 0.0727,
+    "loop": false
+  },
+  "radio_escape": {
+    "duration": 12.281,
+    "channels": 1,
+    "peak": 0.64,
+    "rms": 0.0758,
+    "loop": false
+  },
+  "radio_network": {
+    "duration": 9.998,
+    "channels": 1,
+    "peak": 0.64,
+    "rms": 0.0733,
+    "loop": false
+  },
+  "radio_power": {
+    "duration": 10.298,
+    "channels": 1,
+    "peak": 0.64,
+    "rms": 0.0784,
+    "loop": false
+  }
+}
