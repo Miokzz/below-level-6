@@ -1,0 +1,11 @@
+.godot/
+dist/
+.tools/
+test-output/
+*.tmp
+*.log
+*.bak
+.DS_Store
+Thumbs.db
+desktop.ini
+export_credentials.cfg
