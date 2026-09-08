@@ -75,8 +75,13 @@ func _run() -> void:
 	check(ui.handle_back() and ui.view == "game", "Escape could not release terminal focus")
 	ui.show_choices("SIGNAL LOST", "Connection terminated.", [{"id": "retry", "label": "RETRY"}], false)
 	check(ui.handle_back() and ui.view == "choices", "Escape bypassed the failure screen")
+	ui.show_game()
 	ui.show_subtitle("Radio / Return to the lift.")
 	check(ui._subtitle_panel.visible, "Subtitle was not visible")
+	ui.show_pause()
+	check(not ui._subtitle_panel.visible, "Paused subtitle obscured menu controls")
+	ui.show_game()
+	check(ui._subtitle_panel.visible, "Resuming lost the active subtitle")
 	ui.show_subtitle("")
 	check(not ui._subtitle_panel.visible, "Empty subtitle left an overlay")
 	if "--capture-ui" in OS.get_cmdline_user_args():

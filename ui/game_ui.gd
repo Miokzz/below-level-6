@@ -197,6 +197,7 @@ func _present(next_view: String, title: String, body: String = "") -> void:
 	_allow_close = true
 	modal_open = true
 	_hud.hide()
+	_subtitle_panel.hide()
 	_overlay.show()
 	_overlay.color.a = 0.96 if next_view == "main" else 0.9
 	_content.add_child(_label("MERIDIAN  /  SUBSURFACE SYSTEMS", 20, AMBER))
@@ -253,6 +254,7 @@ func show_game() -> void:
 	modal_open = false
 	_overlay.hide()
 	_hud.show()
+	_subtitle_panel.visible = not _subtitle.text.is_empty()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -351,7 +353,7 @@ func set_prompt(text: String) -> void:
 
 func show_subtitle(text: String) -> void:
 	_subtitle.text = text
-	_subtitle_panel.visible = not text.is_empty()
+	_subtitle_panel.visible = view == "game" and not text.is_empty()
 
 
 func show_notice(text: String, seconds: float = 4.0) -> void:
