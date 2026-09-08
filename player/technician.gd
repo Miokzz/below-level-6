@@ -31,6 +31,7 @@ var flashlight_enabled: bool = true
 
 var _collider: CollisionShape3D
 var _capsule: CapsuleShape3D
+var _standing_clearance: CapsuleShape3D
 var _pitch: float = 0.0
 var _crouch_toggle: bool = false
 var _eye_height: float = 1.65
@@ -52,6 +53,9 @@ func _ready() -> void:
 	_capsule = CapsuleShape3D.new()
 	_capsule.radius = 0.28
 	_capsule.height = STANDING_HEIGHT
+	_standing_clearance = CapsuleShape3D.new()
+	_standing_clearance.radius = 0.27
+	_standing_clearance.height = STANDING_HEIGHT - 0.04
 	_collider = CollisionShape3D.new()
 	_collider.shape = _capsule
 	_collider.position.y = STANDING_HEIGHT * 0.5
@@ -91,9 +95,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var motion := event as InputEventMouseMotion
 		var sensitivity := deg_to_rad(float(settings.get("sensitivity", 0.11)))
-		rotate_y(-motion.relative.x * sensitivity)
+		rotate_y(-motion.screen_relative.x * sensitivity)
 		var invert := -1.0 if bool(settings.get("invert_y", false)) else 1.0
-		_pitch = clampf(_pitch - motion.relative.y * sensitivity * invert, -1.46, 1.46)
+		_pitch = clampf(_pitch - motion.screen_relative.y * sensitivity * invert, -1.46, 1.46)
 		camera.rotation.x = _pitch
 	elif event is InputEventKey:
 		var key := event as InputEventKey
@@ -158,11 +162,8 @@ func _set_crouching(value: bool) -> void:
 	_collider.position.y = height * 0.5
 
 func _can_stand() -> bool:
-	var standing_shape := CapsuleShape3D.new()
-	standing_shape.radius = 0.27
-	standing_shape.height = STANDING_HEIGHT - 0.04
 	var query := PhysicsShapeQueryParameters3D.new()
-	query.shape = standing_shape
+	query.shape = _standing_clearance
 	query.transform = Transform3D(Basis.IDENTITY, global_position + Vector3.UP * (STANDING_HEIGHT * 0.5 + 0.015))
 	query.collision_mask = 1
 	query.exclude = [get_rid()]
@@ -197,6 +198,13 @@ func _update_gait(delta: float) -> void:
 	_eye_height = lerpf(_eye_height, target_height, 1.0 - exp(-12.0 * delta))
 	var bob := sin(_bob_clock) * amplitude if moving else 0.0
 	camera.position.y = lerpf(camera.position.y, _eye_height + bob, 1.0 - exp(-16.0 * delta))
+	if crouching:
+		# The capsule lowers immediately; keep the easing camera below low geometry.
+		var origin := global_position + Vector3.UP * 0.9
+		var query := PhysicsRayQueryParameters3D.create(origin, camera.global_position + Vector3.UP * 0.09, 1, [get_rid()])
+		var hit := get_world_3d().direct_space_state.intersect_ray(query)
+		if not hit.is_empty():
+			camera.position.y = minf(camera.position.y, hit.position.y - global_position.y - 0.09)
 	var base_fov := clampf(float(settings.get("fov", 82.0)), 65.0, 110.0)
 	var run_fov := 2.0 if sprinting and not bool(settings.get("reduced_shake", true)) else 0.0
 	camera.fov = lerpf(camera.fov, base_fov + run_fov, 1.0 - exp(-5.0 * delta))

@@ -158,7 +158,7 @@ func _update_watching(delta: float) -> void:
 	_face_player(minf(delta * 0.45, 1.0))
 
 func begin_chase() -> void:
-	if not is_instance_valid(_player):
+	if not is_instance_valid(_player) or state_name in ["PURSUIT", "CAUGHT"]:
 		return
 	_queued_events.clear()
 	_pending_hide = false
@@ -189,10 +189,11 @@ func begin_chase() -> void:
 	if not spawn.is_finite():
 		spawn = _farthest_safe_near(core, _player.global_position, 17.0)
 	if not spawn.is_finite():
-		# A valid breadcrumb is guaranteed to have been reachable by the player.
+		# The observer is taller than the player; recheck even visited floor positions.
 		for index in range(_breadcrumbs.size() - 1, -1, -1):
-			if _breadcrumbs[index].distance_to(_player.global_position) > 8.0:
-				spawn = _breadcrumbs[index]
+			var safe := _floor_point(_breadcrumbs[index])
+			if safe.is_finite() and safe.distance_to(_player.global_position) > 8.0:
+				spawn = safe
 				break
 	if not spawn.is_finite():
 		spawn = core
@@ -310,6 +311,7 @@ func _prepare_navigation() -> void:
 	_sample_index = 0
 	_edge_index = 0
 	navigation_ready = false
+	navigation_point_count = 0
 	var markers: Dictionary = _facility.get("markers")
 	var min_pos := Vector3(-8, 0, -8)
 	var max_pos := Vector3(8, 0, 8)
@@ -408,6 +410,8 @@ func _rebuild_path() -> void:
 	var start_id := _nearest_reachable(_actor.global_position)
 	var goal_id := _nearest_reachable(goal)
 	if start_id < 0 or goal_id < 0:
+		_path = PackedVector3Array()
+		_path_index = 0
 		return
 	var proposed := _astar.get_point_path(start_id, goal_id)
 	# Revalidate changed doors/props. A stale shortest edge must not trap pursuit.
@@ -422,10 +426,9 @@ func _rebuild_path() -> void:
 		if not changed:
 			break
 		proposed = _astar.get_point_path(start_id, goal_id)
-	if not proposed.is_empty():
-		_path = proposed
-		_path_index = 0
-		_last_goal = goal
+	_path = proposed
+	_path_index = 0
+	_last_goal = goal
 
 func _farthest_safe_near(center: Vector3, away_from: Vector3, max_distance: float) -> Vector3:
 	var best := Vector3.INF

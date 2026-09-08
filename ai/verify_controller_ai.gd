@@ -89,6 +89,22 @@ func _run() -> void:
 	player.set_test_input(Vector2.ZERO)
 	await _frames(30)
 	_check(not player.crouching and player.camera.position.y > 1.55, "Unobstructed standing restores camera height")
+	var low_ceiling := _box(facility, Vector3(0, 1.35, 4), Vector3(3, 0.4, 2))
+	player.teleport(Vector3(0, 0.05, 5.32))
+	player.velocity.z = -4.25
+	player.set_test_input(Vector2(0, -1), false, true)
+	var clipped_ceiling := false
+	for tick in range(35):
+		await physics_frame
+		if player.global_position.z < 5.0 and player.global_position.z > 3.0:
+			clipped_ceiling = clipped_ceiling or player.camera.global_position.y > 1.07
+	_check(not clipped_ceiling and player.global_position.z < 5.0, "Camera remains below a low ceiling during sprint-to-crouch transition")
+	player.set_test_input(Vector2.ZERO)
+	await _frames(20)
+	_check(player.crouching, "Releasing crouch under a ceiling cannot expand the capsule into geometry")
+	low_ceiling.queue_free()
+	await _frames(30)
+	_check(not player.crouching, "Standing recovers after overhead obstruction is removed")
 	player.clear_test_input()
 	player.teleport(Vector3(0, 0.05, 8))
 	observer.set_phase(2)
@@ -112,6 +128,9 @@ func _run() -> void:
 	for tick in range(1900):
 		await physics_frame
 		var pos: Vector3 = observer.world_position()
+		if tick == 200:
+			observer.begin_chase()
+			_check(observer.world_position().is_equal_approx(pos), "Duplicate chase trigger cannot teleport the pursuing actor or reset its lead-in")
 		if absf(pos.x) < 6.2 and absf(pos.z) < 0.45:
 			crossed_wall = true
 		if absf(pos.x) > 6.25:
