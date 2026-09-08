@@ -23,6 +23,8 @@ func _run() -> void:
 	world.add_child(room)
 	var sound := Soundscape.new()
 	world.add_child(sound)
+	var captions: Array[String] = []
+	sound.subtitle_changed.connect(func(value: String) -> void: captions.append(value))
 	sound.setup(player, room)
 	sound.apply_settings({"master": .75, "music": .5, "sfx": .65})
 	for id in Soundscape.CUES:
@@ -45,6 +47,14 @@ func _run() -> void:
 	sound.stop_cue("elevator")
 	sound.play_cue("radio_arrival")
 	check(sound._radio.playing, "Radio did not play")
+	check(captions.back() == Soundscape.RADIO_TRANSCRIPTS.radio_arrival, "Radio subtitle did not start with playback")
+	sound.play_cue("radio_arrival")
+	check(sound._radio_heard.size() == 1, "Radio dialogue repeated")
+	sound.play_cue("radio_power")
+	sound.play_cue("radio_power")
+	check(sound._radio_id == "radio_arrival" and sound._radio_queue == ["radio_power"], "Queued dialogue interrupted a voice or duplicated")
+	sound.stop_cue("radio_cooling")
+	check(sound._radio.playing, "Stopping an unrelated radio ID interrupted active dialogue")
 	await create_timer(.15).timeout
 	paused = true
 	await create_timer(.12, true).timeout
@@ -56,6 +66,26 @@ func _run() -> void:
 	paused = false
 	await create_timer(.15).timeout
 	check(not sound._radio.stream_paused, "Radio did not resume")
+	sound._radio.seek(sound._radio.stream.get_length() - .08)
+	await create_timer(.25).timeout
+	check(sound._radio_id == "radio_power", "Radio queue did not advance on playback completion")
+	check(captions.back() == Soundscape.RADIO_TRANSCRIPTS.radio_power, "Queued voice and subtitle diverged")
+	sound.apply_settings({"subtitles": false})
+	check(captions.back().is_empty() and sound._radio.playing, "Subtitle preference did not clear text independently of voice")
+	sound.apply_settings({"subtitles": true})
+	check(captions.back() == Soundscape.RADIO_TRANSCRIPTS.radio_power, "Subtitle preference did not restore current dialogue")
+	var history := sound.get_radio_state()
+	sound.clear_cues()
+	check(captions.back().is_empty() and not sound._radio.playing and sound._radio_queue.is_empty(), "Clearing cues left a voice or subtitle active")
+	sound.restore_radio_state(history)
+	sound.play_cue("radio_arrival")
+	check(not sound._radio.playing, "Loading radio history repeated a heard voice")
+	sound.restore_radio_state({})
+	sound.play_cue("radio_arrival")
+	sound.play_radio("radio_escape", true)
+	check(sound._radio_id == "radio_escape" and captions.back() == Soundscape.RADIO_TRANSCRIPTS.radio_escape, "Urgent dialogue interruption failed")
+	sound.stop_radio()
+	check(captions.back().is_empty(), "Interrupted radio left a subtitle stuck")
 	var mix_peak := AudioServer.get_bus_peak_volume_left_db(AudioServer.get_bus_index("Master"), 0)
 	print("AUDIO_DRIVER: %s | device=%s | master_peak=%.2f dBFS" % [AudioServer.get_driver_name(), AudioServer.output_device, mix_peak])
 	if "--hardware-audio" in OS.get_cmdline_user_args():
@@ -70,5 +100,5 @@ func _run() -> void:
 	world.queue_free()
 	# The audio server releases stream playback objects on its own mixing thread.
 	await create_timer(.35).timeout
-	print("AUDIO_VALIDATION: " + ("PASS" if failures.is_empty() else "FAIL") + " | 46 resources, surface variation, loops, duplicate suppression, pause/resume, mute, bus reuse")
+	print("AUDIO_VALIDATION: " + ("PASS" if failures.is_empty() else "FAIL") + " | 46 resources, footsteps, loops, duplicate suppression, pause, radio queue, subtitles, interruption, history, mute")
 	quit(0 if failures.is_empty() else 1)

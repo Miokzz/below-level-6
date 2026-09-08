@@ -6,10 +6,12 @@ import numpy as np
 
 root = Path(__file__).resolve().parents[1] / 'assets' / 'audio'
 manifest = json.loads((root / 'manifest.json').read_text())
+assert set(manifest) == {path.stem for path in root.glob('*.wav')}, 'Manifest must include every shipped sample'
 for name, info in manifest.items():
     with wave.open(str(root / (name + '.wav')), 'rb') as wav:
         assert wav.getsampwidth() == 2 and wav.getframerate() == 44100, name
         assert wav.getnchannels() == info['channels'], name
+        assert abs(wav.getnframes() / wav.getframerate() - info['duration']) < .001, name
         pcm = np.frombuffer(wav.readframes(wav.getnframes()), dtype='<i2')
         data = pcm.astype(float).reshape(-1, wav.getnchannels()) / 32768
     assert np.isfinite(data).all() and np.max(np.abs(data)) < .7, name

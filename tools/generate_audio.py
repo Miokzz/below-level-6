@@ -195,6 +195,18 @@ def speech():
         t = np.arange(len(voice)) / SR
         voice += squelch * (np.exp(-t / .035) + np.exp(-np.abs(t - t[-1] + .14) / .035)) * .033
         save(path.stem, voice, peak=.64)
+    # A checkout ships the processed recordings, but not the machine-specific raw
+    # Windows speech output. Preserve their inventory when regenerating on Linux.
+    for path in sorted(OUT.glob('radio_*.wav')):
+        if path.stem in REPORT:
+            continue
+        with wave.open(str(path), 'rb') as wav:
+            frames, rate, channels = wav.getnframes(), wav.getframerate(), wav.getnchannels()
+            assert wav.getsampwidth() == 2
+            data = np.frombuffer(wav.readframes(frames), dtype='<i2').astype(float) / 32768
+        REPORT[path.stem] = {'duration': round(frames / rate, 3), 'channels': channels,
+                             'peak': round(float(np.max(np.abs(data))), 3),
+                             'rms': round(float(np.sqrt(np.mean(data ** 2))), 4), 'loop': False}
 
 
 def icon():

@@ -3,8 +3,12 @@ class_name Soundscape
 ## Original industrial sound library with restrained, continuous dynamics.
 ## All authoring is offline; the released game only loads packaged WAV assets.
 
+signal subtitle_changed(text: String)
+signal radio_finished(id: String)
+
 const AUDIO_PATH := "res://assets/audio/"
 const SURFACES := ["concrete", "metal", "grating", "tile", "wet"]
+const CUE_ALIASES := {"ding": "chime", "alarm": "failure", "static": "radio", "confirm": "success", "deny": "error", "valve": "cooling", "relay": "click", "light": "click", "footstep": "step_concrete_2"}
 const CUES := ["chime", "click", "door", "drag", "radio", "success", "error",
 	"power", "cooling", "network", "failure", "heartbeat", "breath", "elevator", "shutdown",
 	"radio_arrival", "radio_power", "radio_cooling", "radio_network", "radio_core", "radio_escape"]
@@ -34,6 +38,10 @@ var _radio: AudioStreamPlayer
 var _rng := RandomNumberGenerator.new()
 var _occlusion_clock := 0.0
 var _started := false
+var _radio_id := ""
+var _radio_queue: Array[String] = []
+var _radio_heard: Array[String] = []
+var _subtitles_enabled := true
 
 
 func _ready() -> void:
@@ -62,6 +70,7 @@ func _ready() -> void:
 	_radio.bus = "Radio"
 	_radio.volume_db = -8.0
 	add_child(_radio)
+	_radio.finished.connect(_on_radio_finished)
 
 
 func setup(player_ref: Node3D, facility_ref: Node3D) -> void:
@@ -134,6 +143,9 @@ func _make_flat(id: String, bus_name: String, gain: float, looping: bool) -> Aud
 func _spawn_ambient(id: String, at: Vector3, gain: float, distance: float) -> void:
 	var source := AudioStreamPlayer3D.new()
 	source.stream = _cache(id, true)
+	if source.stream == null:
+		source.free()
+		return
 	source.bus = "SFX"
 	source.volume_db = gain
 	source.max_db = 0.0
@@ -183,15 +195,13 @@ func _process(delta: float) -> void:
 
 
 func play_cue(id: String, at: Vector3 = Vector3.INF) -> void:
-	var aliases := {"ding": "chime", "alarm": "failure", "static": "radio", "confirm": "success", "deny": "error", "valve": "cooling", "relay": "click", "light": "click", "footstep": "step_concrete_2"}
-	var cue: String = aliases.get(id, id)
+	var cue: String = CUE_ALIASES.get(id, id)
 	if cue == "click" or cue == "error" or cue == "success":
 		_interface.stream = _cache(cue)
 		_interface.play()
 		return
 	if cue.begins_with("radio_"):
-		_radio.stream = _cache(cue)
-		_radio.play()
+		play_radio(cue)
 		return
 	var stream: AudioStream = _cache(cue)
 	if stream == null:
@@ -226,22 +236,78 @@ func play_cue(id: String, at: Vector3 = Vector3.INF) -> void:
 		source = flat
 	_active_cues[cue] = source
 	source.finished.connect(func() -> void:
-		_active_cues.erase(cue)
+		if _active_cues.get(cue) == source:
+			_active_cues.erase(cue)
 		source.queue_free()
 	)
 
 
 func stop_cue(id: String) -> void:
-	if id.begins_with("radio_"):
-		_radio.stop()
-	if _active_cues.has(id) and is_instance_valid(_active_cues[id]):
-		_active_cues[id].queue_free()
-	_active_cues.erase(id)
+	var cue: String = CUE_ALIASES.get(id, id)
+	if cue.begins_with("radio_"):
+		_radio_queue.erase(cue)
+		if _radio_id == cue:
+			_radio.stop()
+			_on_radio_finished()
+		return
+	if _active_cues.has(cue) and is_instance_valid(_active_cues[cue]):
+		_active_cues[cue].stop()
+		_active_cues[cue].queue_free()
+	_active_cues.erase(cue)
+
+
+func play_radio(id: String, interrupt: bool = false) -> void:
+	if not RADIO_TRANSCRIPTS.has(id) or _radio_heard.has(id) or _radio_queue.has(id):
+		return
+	if interrupt:
+		stop_radio()
+	if not _radio_id.is_empty():
+		_radio_queue.append(id)
+		return
+	var stream := _cache(id)
+	if stream == null:
+		return
+	_radio_id = id
+	_radio_heard.append(id)
+	_radio.stream = stream
+	_radio.play()
+	subtitle_changed.emit(RADIO_TRANSCRIPTS[id] if _subtitles_enabled else "")
+
+
+func _on_radio_finished() -> void:
+	var finished_id := _radio_id
+	_radio_id = ""
+	subtitle_changed.emit("")
+	if not finished_id.is_empty():
+		radio_finished.emit(finished_id)
+	if not _radio_queue.is_empty():
+		play_radio(_radio_queue.pop_front())
+
+
+func stop_radio() -> void:
+	_radio_queue.clear()
+	_radio.stop()
+	_radio_id = ""
+	subtitle_changed.emit("")
+
+
+func get_radio_state() -> Dictionary:
+	return {"heard": _radio_heard.duplicate()}
+
+
+func restore_radio_state(state: Dictionary) -> void:
+	stop_radio()
+	_radio_heard.clear()
+	var heard = state.get("heard", [])
+	if heard is Array:
+		for id in heard:
+			if id is String and RADIO_TRANSCRIPTS.has(id) and not _radio_heard.has(id):
+				_radio_heard.append(id)
 
 
 func clear_cues() -> void:
 	## Clear old narrative audio when restarting, loading or returning to the menu.
-	_radio.stop()
+	stop_radio()
 	_steps.stop()
 	for source in _active_cues.values():
 		if is_instance_valid(source):
@@ -266,8 +332,10 @@ func step(surface: String) -> void:
 
 func apply_settings(values: Dictionary) -> void:
 	_create_buses()
-	for pair in [["Master", "master"], ["Music", "music"], ["SFX", "sfx"], ["Radio", "sfx"]]:
+	for pair in [["Master", "master"], ["Music", "music"], ["SFX", "sfx"], ["Radio", "voice"]]:
 		var index := AudioServer.get_bus_index(pair[0])
-		var gain := clampf(float(values.get(pair[1], 0.8)), 0.0, 1.0)
+		var gain := clampf(float(values.get(pair[1], values.get("sfx", 0.8))), 0.0, 1.0)
 		AudioServer.set_bus_volume_db(index, linear_to_db(maxf(gain, 0.0001)))
 		AudioServer.set_bus_mute(index, gain <= 0.0001)
+	_subtitles_enabled = bool(values.get("subtitles", true))
+	subtitle_changed.emit(RADIO_TRANSCRIPTS.get(_radio_id, "") if _subtitles_enabled else "")
