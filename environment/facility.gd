@@ -3,6 +3,13 @@ class_name Facility
 ## An authored modular underground facility. Structural geometry is batched by
 ## material, while collision and movable props keep deliberately simple shapes.
 
+signal door_state_changed(id: String, opened: bool)
+signal elevator_arrived(to_surface: bool)
+signal mechanism_cue(id: String, position: Vector3)
+
+const ELEVATOR_SURFACE_HEIGHT := 30.0
+const DOOR_SECONDS := 1.4
+
 var markers: Dictionary = {}
 var interactables: Dictionary = {}
 var interaction_approaches: Dictionary = {}
@@ -24,6 +31,24 @@ var _clock: float = 0.0
 var _anomaly_defaults: Dictionary = {}
 var screenshot_points: Dictionary = {}
 var _reflection_probes: Array[ReflectionProbe] = []
+var _texture_cache: Dictionary = {}
+var _terminal_labels: Dictionary = {}
+var _terminal_defaults: Dictionary = {}
+var _collectibles: Dictionary = {}
+var _pump_handles: Dictionary = {}
+var elevator_cabin: AnimatableBody3D
+var _elevator_moving := false
+var _elevator_busy := false
+var _elevator_passenger: CharacterBody3D
+var _elevator_elapsed := 0.0
+var _elevator_duration := 10.0
+var _elevator_from := 0.0
+var _elevator_target := 0.0
+var _elevator_platform_layers := 0
+var _elevator_passenger_physics := true
+var _elevator_display_floor := -99
+var _elevator_generation := 0
+var _door_guard_clock := 0.0
 
 const COLD := Color("9cbec1")
 const CYAN := Color("6ed6c5")
@@ -109,6 +134,8 @@ func _emission(key: String, color: Color, energy: float) -> void:
 	material.emission_energy_multiplier = energy
 
 func _texture(kind: String) -> ImageTexture:
+	if _texture_cache.has(kind):
+		return _texture_cache[kind]
 	var texture_image := Image.create(256, 256, false, Image.FORMAT_RGB8)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(kind)
@@ -131,7 +158,9 @@ func _texture(kind: String) -> ImageTexture:
 				grain = 0.96 + rng.randf_range(-0.035, 0.035)
 			texture_image.set_pixel(x, y, Color(grain, grain, grain))
 	texture_image.generate_mipmaps()
-	return ImageTexture.create_from_image(texture_image)
+	var texture := ImageTexture.create_from_image(texture_image)
+	_texture_cache[kind] = texture
+	return texture
 
 func _box(pos: Vector3, size: Vector3, material: String, solid: bool = false, yaw: float = 0.0) -> void:
 	# Compatibility supports a bounded light list per object. Spatial batches keep
@@ -302,14 +331,12 @@ func _floor(x: float, z: float, width: float, depth: float, material: String = "
 
 func _make_layout() -> void:
 	# Elevator, arrival, hub, east maintenance alcove.
-	_floor(0, 25, 6, 6, "steel_light", 3.1)
 	_floor(0, 17, 6, 10)
 	_floor(0, 4, 16, 16)
 	_floor(7, 17, 8, 6, "concrete")
-	_wall_x(-3, 12, 28)
-	_wall_x(3, 20, 28)
+	_wall_x(-3, 12, 22)
+	_wall_x(3, 20, 22)
 	_wall_x(3, 12, 15.4)
-	_wall_z(28, -3, 3, 3.1)
 	_wall_x(11, 14, 20)
 	_wall_z(14, 3, 11)
 	_wall_z(20, 3, 11)
@@ -428,29 +455,129 @@ func _door(id: String, pos: Vector3, width: float, height: float) -> void:
 		_dynamic_box(panel, Vector3.ZERO, Vector3(width * 0.5 - 0.025, height, 0.18), "steel_light")
 		_dynamic_box(panel, Vector3(0, 0.15, 0.11), Vector3(width * 0.5 - 0.15, height * 0.54, 0.06), "steel")
 		_dynamic_box(panel, Vector3(0, -height * 0.37, 0.15), Vector3(width * 0.5 - 0.12, 0.14, 0.035), "orange")
-		var door_body := _collider(Vector3.ZERO, Vector3(width * 0.5 - 0.025, height, 0.24), 0.0, panel)
+		var door_body := _collider(Vector3.ZERO, Vector3(width * 0.5 + 0.015, height, 0.24), 0.0, panel)
 		door_body.add_to_group("facility_doors")
 		panel.set_meta("side", side)
 		panels.append(panel)
-	_doors[id] = {"anchor": anchor, "panels": panels, "width": width, "height": height, "open": false, "tween": null}
+	_doors[id] = {"anchor": anchor, "panels": panels, "width": width, "height": height, "open": false, "moving": false, "settled": true, "tween": null}
 
 func set_door(id: String, opened: bool) -> void:
 	if not _doors.has(id):
 		return
+	if id == "elevator" and _elevator_moving:
+		return
 	var data: Dictionary = _doors[id]
+	if data.open == opened and (data.moving or data.settled):
+		return
+	if not opened and _door_obstructed(id):
+		if not data.open:
+			set_door(id, true)
+		return
 	data.open = opened
+	data.moving = true
+	data.settled = false
 	if data.tween != null and is_instance_valid(data.tween):
 		data.tween.kill()
-	var tween := create_tween().set_parallel(true)
+	var tween := create_tween().set_parallel(true).set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
 	data.tween = tween
+	mechanism_cue.emit("door", data.anchor.global_position + Vector3.UP)
 	for panel in data.panels:
 		var side: float = panel.get_meta("side")
 		var x: float = side * data.width * (0.76 if opened else 0.25)
-		tween.tween_property(panel, "position:x", x, 1.4).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		# Open state clears collision at once: a checkpoint never restores a moving obstruction.
-		for child in panel.get_children():
-			if child is StaticBody3D:
-				child.collision_layer = 0 if opened else 1
+		tween.tween_property(panel, "position:x", x, DOOR_SECONDS).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	tween.finished.connect(func() -> void:
+		data.moving = false
+		data.settled = true
+		door_state_changed.emit(id, opened)
+	)
+
+func _door_obstructed(id: String) -> bool:
+	if not is_inside_tree():
+		return false
+	var data: Dictionary = _doors[id]
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(data.width + 0.35, data.height, 0.95)
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = Transform3D(Basis.IDENTITY, data.anchor.global_position + Vector3.UP * data.height * 0.5)
+	query.collision_mask = 4 | 8
+	return not get_world_3d().direct_space_state.intersect_shape(query, 1).is_empty()
+
+func is_door_open(id: String) -> bool:
+	return _doors.has(id) and _doors[id].open and _doors[id].settled
+
+func elevator_contains(point: Vector3) -> bool:
+	if not is_instance_valid(elevator_cabin):
+		return false
+	var local := elevator_cabin.to_local(point)
+	return absf(local.x) < 2.5 and local.z > 22.65 and local.z < 27.5 and local.y > -0.3 and local.y < 2.3
+
+func is_elevator_moving() -> bool:
+	return _elevator_busy
+
+func set_elevator_status(value: String) -> void:
+	if anomaly_nodes.has("elevator_display"):
+		anomaly_nodes.elevator_display.text = value
+
+func reset_elevator(at_surface: bool = false) -> void:
+	_elevator_generation += 1
+	_elevator_moving = false
+	_elevator_busy = false
+	_release_passenger()
+	elevator_cabin.position.y = ELEVATOR_SURFACE_HEIGHT if at_surface else 0.0
+	_elevator_display_floor = -99
+	set_elevator_status("G" if at_surface else "B6")
+	_snap_door("elevator", false)
+
+func _snap_door(id: String, opened: bool) -> void:
+	var door: Dictionary = _doors[id]
+	if door.tween != null and is_instance_valid(door.tween):
+		door.tween.kill()
+	for panel in door.panels:
+		panel.position.x = panel.get_meta("side") * door.width * (0.76 if opened else 0.25)
+	door.open = opened
+	door.moving = false
+	door.settled = true
+
+func travel_elevator(to_surface: bool, passenger: CharacterBody3D, duration: float = 10.0) -> bool:
+	if _elevator_busy or not is_instance_valid(passenger) or not elevator_contains(passenger.global_position):
+		return false
+	_elevator_busy = true
+	var generation := _elevator_generation
+	set_door("elevator", false)
+	while _doors.elevator.moving:
+		await get_tree().physics_frame
+		if generation != _elevator_generation:
+			return false
+	if _doors.elevator.open or not elevator_contains(passenger.global_position):
+		_elevator_busy = false
+		return false
+	_elevator_passenger = passenger
+	_elevator_platform_layers = passenger.platform_floor_layers
+	_elevator_passenger_physics = passenger.is_physics_processing()
+	# While controls allow looking only, transport the passenger with the cabin.
+	# Suspending gravity avoids recovery against the previous physics-frame floor.
+	passenger.set_physics_process(false)
+	passenger.platform_floor_layers = 0
+	passenger.velocity = Vector3.ZERO
+	_elevator_from = elevator_cabin.position.y
+	_elevator_target = ELEVATOR_SURFACE_HEIGHT if to_surface else 0.0
+	_elevator_elapsed = 0.0
+	_elevator_duration = maxf(duration, 0.1)
+	_elevator_moving = true
+	mechanism_cue.emit("elevator", elevator_cabin.global_position + Vector3(0, 1, 25))
+	while _elevator_moving:
+		await get_tree().physics_frame
+		if generation != _elevator_generation:
+			return false
+	return true
+
+func _release_passenger() -> void:
+	if is_instance_valid(_elevator_passenger):
+		_elevator_passenger.platform_floor_layers = _elevator_platform_layers
+		_elevator_passenger.set_physics_process(_elevator_passenger_physics)
+		_elevator_passenger.velocity = Vector3.ZERO
+	_elevator_passenger = null
 
 func _interaction(id: String, label_text: String, pos: Vector3, size: Vector3 = Vector3(1.4, 1.3, 0.22), yaw: float = 0.0, parent_node: Node3D = self) -> StaticBody3D:
 	var body := StaticBody3D.new()
@@ -477,12 +604,43 @@ func _terminal(id: String, heading: String, lines: String, pos: Vector3, width: 
 	var screen := _dynamic_box(self, pos + Vector3(0, 0, 0.13), Vector3(width - 0.15, 0.9, 0.025), "screen")
 	_screens.append(screen)
 	_label(heading, pos + Vector3(0, 0.27, 0.151), 38, CYAN, 0.0, 0.0032)
-	_label(lines, pos + Vector3(0, -0.10, 0.151), 25, COLD, 0.0, 0.0034)
+	_terminal_labels[id] = _label(lines, pos + Vector3(0, -0.10, 0.151), 25, COLD, 0.0, 0.0034)
+	_terminal_defaults[id] = lines
 	_box(pos + Vector3(0, -0.63, 0.29), Vector3(width * 0.65, 0.06, 0.27), "black")
 	for x in range(12):
 		for z in range(3):
 			_box(pos + Vector3(-width * 0.28 + x * width * 0.046, -0.59, 0.2 + z * 0.072), Vector3(0.045, 0.02, 0.043), "steel_light")
 	_interaction(id, heading, pos + Vector3(0, 0, 0.2), Vector3(width, 1.55, 0.32))
+
+func set_terminal_status(id: String, value: String) -> void:
+	if _terminal_labels.has(id):
+		_terminal_labels[id].text = value
+
+func set_collected(id: String, collected: bool) -> void:
+	if _collectibles.has(id):
+		_collectibles[id].visible = not collected
+	if interactables.has(id):
+		interactables[id].collision_layer = 0 if collected else 2
+		interactables[id].set_meta("collected", collected)
+
+func set_pump_state(id: String, enabled: bool) -> void:
+	if not _pump_handles.has(id):
+		return
+	var data: Dictionary = _pump_handles[id]
+	data.handle.rotation.x = -0.7 if enabled else 0.0
+	data.status.text = "RUNNING / LOCAL READY" if enabled else "LOCAL / MANUAL START"
+	data.status.modulate = CYAN if enabled else COLD
+	for lamp in data.lamps:
+		lamp.material_override = materials["cyan" if enabled else "amber"]
+
+func reset_interactions() -> void:
+	_snap_door("core", false)
+	for id in _collectibles:
+		set_collected(id, false)
+	for id in _pump_handles:
+		set_pump_state(id, false)
+	for id in _terminal_defaults:
+		set_terminal_status(id, _terminal_defaults[id])
 
 func _note(id: String, heading: String, text_value: String, pos: Vector3, yaw: float = 0.0) -> void:
 	_box(pos, Vector3(0.74, 0.96, 0.025), "paper", false, yaw)
@@ -518,23 +676,7 @@ func _hazard_line(pos: Vector3, width: float, along_z: bool = false) -> void:
 		_box(pos + offset, Vector3(0.19, 0.012, 0.32), "black", false, yaw + 0.35)
 
 func _arrival() -> void:
-	# Brushed lift cabin, recessed handrails and a luminous destination display.
-	for x in [-2.78, 2.78]:
-		_box(Vector3(x, 1.5, 25), Vector3(0.06, 2.8, 5.6), "steel_light")
-		_box(Vector3(x, 0.45, 25), Vector3(0.12, 0.75, 5.6), "steel")
-		_pipe(Vector3(x * 0.96, 1.0, 23), Vector3(x * 0.96, 1.0, 27), 0.045)
-		for z in [23, 25, 27]:
-			_box(Vector3(x, 1.65, z), Vector3(0.1, 2.5, 0.028), "steel")
-	_box(Vector3(0, 1.5, 27.8), Vector3(5.6, 2.8, 0.08), "steel_light")
-	_fixture(Vector3(0, 2.91, 25), 3.1, 0.0, Color("d5dfc7"), "arrival", 2.5)
-	_box(Vector3(0, 2.8, 22.21), Vector3(1.6, 0.52, 0.05), "black")
-	anomaly_nodes["elevator_display"] = _label("B6", Vector3(0, 2.8, 22.25), 80, AMBER, 0, 0.005)
-	_label("MERIDIAN / SUBSURFACE SYSTEMS", Vector3(0, 2.2, 27.73), 44, COLD, PI, 0.0035)
-	_label("CAPACITY  1800 KG\nAUTHORIZED PERSONNEL ONLY", Vector3(-2.71, 1.95, 25), 25, Color("293839"), PI * 0.5, 0.003)
-	_box(Vector3(2.65, 1.3, 25.4), Vector3(0.15, 0.9, 0.45), "steel")
-	for y in [1.15, 1.4, 1.65]:
-		_box(Vector3(2.55, y, 25.4), Vector3(0.035, 0.11, 0.14), "amber")
-	_interaction("exit", "ELEVATOR / SURFACE", Vector3(2.48, 1.45, 25.4), Vector3(0.25, 1.0, 0.8))
+	_build_elevator()
 	_hazard_line(Vector3(0, 0.018, 22.1), 5.5)
 	for z in [14, 18]:
 		_fixture(Vector3(0, 3.95, z), 2.0)
@@ -548,10 +690,14 @@ func _arrival() -> void:
 	_box(Vector3(8.2, 0.87, 14.8), Vector3(4.4, 0.16, 1.1), "steel_light", true)
 	for x in [6.3, 10.1]:
 		_box(Vector3(x, 0.43, 14.8), Vector3(0.12, 0.86, 0.8), "steel", true)
-	_box(Vector3(8.25, 1.04, 15.0), Vector3(0.64, 0.21, 0.42), "orange")
+	var fuse := Node3D.new()
+	fuse.name = "FuseCarrier"
+	add_child(fuse)
+	_dynamic_box(fuse, Vector3(8.25, 1.04, 15.0), Vector3(0.64, 0.21, 0.42), "orange")
 	for x in [8.05, 8.22, 8.39]:
-		_cylinder(Vector3(x, 1.18, 15.0), 0.053, 0.28, "steel_light", Vector3(PI * 0.5, 0, 0))
+		_cylinder(Vector3(x, 1.18, 15.0), 0.053, 0.28, "steel_light", Vector3(PI * 0.5, 0, 0), -1.0, fuse)
 	_interaction("fuse", "PICK UP / FUSE CARRIER", Vector3(8.25, 1.15, 15.1), Vector3(0.9, 0.5, 0.7))
+	_collectibles["fuse"] = fuse
 	_sign("SERVICE STOCK / 06", Vector3(8, 2.8, 14.23), 3.5, 0, AMBER)
 	_label("REPLACEMENT FUSE CARRIER\nISOLATE DISTRIBUTION BEFORE FITTING", Vector3(8, 2.2, 14.25), 32, COLD, 0, 0.003)
 	for y in [0.5, 1.35, 2.2]:
@@ -559,6 +705,73 @@ func _arrival() -> void:
 		for z in [16.3, 17.15, 18.0]:
 			_box(Vector3(10.5, y + 0.22, z), Vector3(0.51, 0.37, 0.62), "lower")
 	_fixture(Vector3(7.5, 3.9, 17), 1.7, PI * 0.5, AMBER, "normal", 1.5)
+
+func _cabin_box(pos: Vector3, size: Vector3, material: String, solid: bool = false) -> MeshInstance3D:
+	var visual := _dynamic_box(elevator_cabin, pos, size, material)
+	if solid:
+		var collision := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = size
+		collision.shape = shape
+		collision.position = pos
+		elevator_cabin.add_child(collision)
+	return visual
+
+func _build_elevator() -> void:
+	elevator_cabin = AnimatableBody3D.new()
+	elevator_cabin.name = "SurfaceLiftCabin"
+	elevator_cabin.collision_layer = 1
+	elevator_cabin.collision_mask = 0
+	elevator_cabin.sync_to_physics = false
+	add_child(elevator_cabin)
+	_doors.elevator.anchor.reparent(elevator_cabin, false)
+	_cabin_box(Vector3(0, -0.16, 25), Vector3(6, 0.32, 6), "steel_light", true)
+	_cabin_box(Vector3(0, 3.22, 25), Vector3(6, 0.24, 6), "steel", true)
+	_cabin_box(Vector3(0, 2.8, 22.1), Vector3(6, 0.6, 0.18), "steel", true)
+	for x in [-2.83, 2.83]:
+		_cabin_box(Vector3(x, 1.25, 22.1), Vector3(0.22, 2.5, 0.2), "steel", true)
+	_cabin_box(Vector3(-2.92, 1.55, 25), Vector3(0.16, 3.1, 6), "steel_light", true)
+	_cabin_box(Vector3(0, 1.55, 27.92), Vector3(6, 3.1, 0.16), "steel_light", true)
+	# Inspection glazing reveals fixed rails and landing marks during real travel.
+	for z in [23.0, 27.25]:
+		_cabin_box(Vector3(2.92, 1.55, z), Vector3(0.16, 3.1, 2.0 if z < 24 else 1.5), "steel_light", true)
+	_cabin_box(Vector3(2.92, 0.56, 25.25), Vector3(0.16, 1.12, 2.5), "steel", true)
+	_cabin_box(Vector3(2.92, 2.75, 25.25), Vector3(0.16, 0.7, 2.5), "steel_light", true)
+	_cabin_box(Vector3(2.94, 1.76, 25.25), Vector3(0.06, 1.28, 2.5), "glass", true)
+	for z in [24.0, 25.25, 26.5]:
+		_cabin_box(Vector3(2.85, 1.76, z), Vector3(0.12, 1.4, 0.07), "steel")
+	for x in [-2.72, 2.72]:
+		_cabin_box(Vector3(x, 1.0, 25), Vector3(0.07, 0.07, 4.4), "steel_light")
+		_cabin_box(Vector3(x, 0.43, 25), Vector3(0.12, 0.75, 5.6), "steel")
+	_cabin_box(Vector3(0, 2.93, 25), Vector3(3.3, 0.13, 0.5), "steel")
+	_cabin_box(Vector3(0, 2.85, 25), Vector3(3.1, 0.03, 0.26), "lamp")
+	var cabin_light := _light(Vector3(0, 2.58, 25), Color("d5dfc7"), 2.5, 7, "arrival")
+	cabin_light.reparent(elevator_cabin, false)
+	_cabin_box(Vector3(0, 2.8, 22.21), Vector3(1.8, 0.52, 0.05), "black")
+	anomaly_nodes["elevator_display"] = _label("B6", Vector3(0, 2.8, 22.25), 66, AMBER, 0, 0.005, elevator_cabin)
+	_label("MERIDIAN / SUBSURFACE SYSTEMS", Vector3(0, 2.2, 27.73), 44, COLD, PI, 0.0035, elevator_cabin)
+	_label("CAPACITY  1800 KG\nAUTHORIZED PERSONNEL ONLY", Vector3(-2.81, 1.95, 25), 25, Color("293839"), PI * 0.5, 0.003, elevator_cabin)
+	_cabin_box(Vector3(2.75, 1.35, 23.35), Vector3(0.17, 1.8, 1.0), "steel")
+	for data in [["exit", "SURFACE", 1.92], ["elevator_open", "OPEN", 1.36], ["elevator_close", "CLOSE", 0.8]]:
+		_cabin_box(Vector3(2.64, data[2], 23.35), Vector3(0.055, 0.21, 0.25), "amber")
+		_label(data[1], Vector3(2.60, data[2] + 0.19, 23.35), 25, COLD, -PI * 0.5, 0.0028, elevator_cabin)
+		_interaction(data[0], "LIFT / " + data[1], Vector3(2.57, data[2], 23.35), Vector3(0.25, 0.3, 0.6), 0, elevator_cabin)
+	_box(Vector3(2.80, 1.55, 21.66), Vector3(0.25, 0.65, 0.15), "steel")
+	_box(Vector3(2.80, 1.55, 21.55), Vector3(0.12, 0.15, 0.04), "amber")
+	_label("CALL", Vector3(2.80, 1.85, 21.54), 25, AMBER, PI, 0.0028)
+	_interaction("elevator_call", "LIFT / CALL CAR", Vector3(2.80, 1.55, 21.47), Vector3(0.38, 0.65, 0.2))
+	# The shaft remains at world height while the cabin and passenger move 30 m.
+	for x in [-3.6, 3.6]:
+		_box(Vector3(x, 17, 25), Vector3(0.3, 35, 6.6), "concrete", true)
+		for z in [23.4, 26.9]:
+			_box(Vector3(x * 0.93, 17, z), Vector3(0.13, 35, 0.16), "steel_light")
+	_box(Vector3(0, 17, 28.45), Vector3(7.4, 35, 0.3), "concrete", true)
+	_box(Vector3(0, 18.8, 21.65), Vector3(7.4, 30.2, 0.3), "concrete", true)
+	for floor_number in range(7):
+		var height := float(floor_number) * 5.0
+		_box(Vector3(3.38, height + 1.5, 25), Vector3(0.12, 0.22, 6.2), "orange")
+		_label("B" + str(6 - floor_number) if floor_number < 6 else "SURFACE", Vector3(3.39, height + 2.05, 25.0), 60, AMBER, -PI * 0.5, 0.005)
+		_light(Vector3(3.23, height + 2.8, 25.5), AMBER, 0.65, 4.0, "shaft")
 
 func _hub() -> void:
 	# Architectural rhythm: cold suspended lights, structural ribs, dark lower walls.
@@ -711,11 +924,16 @@ func _pump_switch(id: String, caption: String, pos: Vector3, yaw: float) -> void
 	_box(pos, Vector3(0.92, 1.18, 0.28), "steel", true, yaw)
 	_box(pos + basis * Vector3(0, 0.02, 0.16), Vector3(0.78, 0.96, 0.08), "lower", false, yaw)
 	_box(pos + basis * Vector3(0, 0.14, 0.23), Vector3(0.36, 0.36, 0.06), "black", false, yaw)
-	_box(pos + basis * Vector3(0, 0.14, 0.30), Vector3(0.09, 0.24, 0.12), "orange", false, yaw)
+	var handle := _dynamic_box(self, pos + basis * Vector3(0, 0.14, 0.30), Vector3(0.09, 0.24, 0.12), "orange")
+	handle.rotation.y = yaw
+	var lamps: Array[MeshInstance3D] = []
 	for x in [-0.23, 0.23]:
-		_box(pos + basis * Vector3(x, -0.3, 0.22), Vector3(0.07, 0.07, 0.025), "amber", false, yaw)
+		var lamp := _dynamic_box(self, pos + basis * Vector3(x, -0.3, 0.22), Vector3(0.07, 0.07, 0.025), "amber")
+		lamp.rotation.y = yaw
+		lamps.append(lamp)
 	_label(caption, pos + basis * Vector3(0, 0.78, 0.20), 38, AMBER, yaw, 0.0033)
-	_label("LOCAL / MANUAL START", pos + basis * Vector3(0, -0.48, 0.225), 24, COLD, yaw, 0.0027)
+	var status := _label("LOCAL / MANUAL START", pos + basis * Vector3(0, -0.48, 0.225), 24, COLD, yaw, 0.0027)
+	_pump_handles[id] = {"handle": handle, "status": status, "lamps": lamps}
 	_interaction(id, caption + " / RESTART", pos + basis * Vector3(0, 0, 0.35), Vector3(1.0, 1.3, 0.35), yaw)
 
 func _server_hall() -> void:
@@ -780,8 +998,12 @@ func _security() -> void:
 	_box(Vector3(2.6, 0.88, -15.7), Vector3(1.6, 0.18, 1.5), "steel_light", true)
 	for x in [2.0, 3.2]:
 		_box(Vector3(x, 0.42, -15.7), Vector3(0.1, 0.85, 1.2), "steel")
-	_box(Vector3(2.5, 1.0, -15.4), Vector3(0.23, 0.035, 0.35), "paper")
-	_box(Vector3(2.5, 1.023, -15.4), Vector3(0.17, 0.013, 0.14), "cyan")
+	var badge := Node3D.new()
+	badge.name = "SecurityBadge"
+	add_child(badge)
+	_dynamic_box(badge, Vector3(2.5, 1.0, -15.4), Vector3(0.23, 0.035, 0.35), "paper")
+	_dynamic_box(badge, Vector3(2.5, 1.023, -15.4), Vector3(0.17, 0.013, 0.14), "cyan")
+	_collectibles["badge"] = badge
 	_interaction("badge", "SECURITY ACCESS BADGE", Vector3(2.5, 1.14, -15.4), Vector3(0.85, 0.5, 0.8))
 	_label("ACCESS CREDENTIALS", Vector3(3.74, 2.0, -15.5), 36, COLD, -PI * 0.5, 0.003)
 	for z in [-10, -11.2]:
@@ -867,10 +1089,14 @@ func _service_corridor() -> void:
 	_dynamic_box(end, Vector3(0.62, 0.82, 0), Vector3(0.9, 0.15, 1.35), "steel_light")
 	_dynamic_box(end, Vector3(0.42, 0.42, 0), Vector3(0.42, 0.84, 1.1), "lower")
 	_collider(Vector3(0.56, 0.46, 0), Vector3(1.0, 0.92, 1.4), 0, end)
-	_dynamic_box(end, Vector3(0.65, 1.01, 0), Vector3(0.4, 0.23, 0.68), "orange")
-	_dynamic_box(end, Vector3(0.87, 1.01, 0), Vector3(0.035, 0.12, 0.46), "black")
+	var module := Node3D.new()
+	module.name = "OfflineModule"
+	end.add_child(module)
+	_dynamic_box(module, Vector3(0.65, 1.01, 0), Vector3(0.4, 0.23, 0.68), "orange")
+	_dynamic_box(module, Vector3(0.87, 1.01, 0), Vector3(0.035, 0.12, 0.46), "black")
 	for z in [-0.14, 0.0, 0.14]:
-		_dynamic_box(end, Vector3(0.90, 1.02, z), Vector3(0.022, 0.05, 0.045), "cyan")
+		_dynamic_box(module, Vector3(0.90, 1.02, z), Vector3(0.022, 0.05, 0.045), "cyan")
+	_collectibles["module"] = module
 	_label("BRIDGE 06\nOFFLINE COLD STORAGE", Vector3(0.20, 1.44, 0), 26, AMBER, PI * 0.5, 0.003, end)
 	_interaction("module", "BRIDGE 06 / OFFLINE MODULE", Vector3(0.76, 1.08, 0), Vector3(0.65, 0.55, 0.85), 0, end)
 	anomaly_nodes["corridor_end"] = end
@@ -947,6 +1173,7 @@ func _camera_prop(pos: Vector3, target: Vector3) -> void:
 	_dynamic_box(camera_model, Vector3(0, 0.25, 0.1), Vector3(0.07, 0.4, 0.07), "steel_light")
 
 func set_stage(stage: int) -> void:
+	var previous := _stage
 	_stage = stage
 	for light in lights:
 		var category: String = light.get_meta("category", "normal")
@@ -962,14 +1189,14 @@ func set_stage(stage: int) -> void:
 			factor = 0.25
 		elif stage >= 7 and category in ["hub", "survey"]:
 			factor = 0.57
-		light.light_energy = base * factor
+		light.light_energy = 0.0 if light.get_meta("scare_disabled", false) else base * factor
 	for screen in _screens:
 		if screen.get_meta("live_feed", false):
 			continue
 		screen.material_override = materials["screen"] if stage >= 7 else materials["screen_dead"]
 	if stage >= 10:
 		set_door("core", true)
-	if stage >= 1:
+	if previous == 0 and stage >= 1 and not _elevator_busy:
 		set_door("elevator", true)
 
 func bind_cctv_texture(texture: Texture2D) -> void:
@@ -1028,6 +1255,9 @@ func reset_anomalies() -> void:
 		anomaly_nodes[key].visible = true
 	anomaly_nodes.sign.text = "EXIT  /  SURFACE"
 	anomaly_nodes.elevator_display.text = "B6"
+	for light in lights:
+		light.set_meta("scare_disabled", false)
+	set_stage(_stage)
 	extend_corridor(0)
 
 func surface_at(pos: Vector3) -> String:
@@ -1072,6 +1302,9 @@ func _build_navigation() -> void:
 func _build_approaches() -> void:
 	for key in ["operations", "power", "cooling", "network", "cctv", "core", "exit", "core_access"]:
 		interaction_approaches[key] = {"position": markers[key], "target": interactables[key].position}
+	for key in ["elevator_open", "elevator_close"]:
+		interaction_approaches[key] = {"position": markers.exit, "target": interactables[key].position}
+	interaction_approaches["elevator_call"] = {"position": Vector3(2.1, 0.1, 19.5), "target": interactables.elevator_call.position}
 	interaction_approaches["fuse"] = {"position": Vector3(8.2, 0.1, 17.0), "target": interactables.fuse.position}
 	interaction_approaches["badge"] = {"position": Vector3(2.5, 0.1, -13.5), "target": interactables.badge.position}
 	interaction_approaches["note_power"] = {"position": Vector3(12.0, 0.1, 6.1), "target": interactables.note_power.position}
@@ -1114,6 +1347,38 @@ func _nearest_visible_node(point: Vector3) -> int:
 			best = i
 			best_distance = distance
 	return best
+
+func _physics_process(delta: float) -> void:
+	_door_guard_clock -= delta
+	if _door_guard_clock <= 0.0:
+		_door_guard_clock = 0.08
+		for id in _doors:
+			if _doors[id].moving and not _doors[id].open and _door_obstructed(id):
+				set_door(id, true)
+	if not _elevator_moving:
+		return
+	_elevator_elapsed = minf(_elevator_elapsed + delta, _elevator_duration)
+	var progress := _elevator_elapsed / _elevator_duration
+	var eased := progress * progress * (3.0 - 2.0 * progress)
+	var next_height := lerpf(_elevator_from, _elevator_target, eased)
+	var displacement := next_height - elevator_cabin.position.y
+	elevator_cabin.position.y = next_height
+	if is_instance_valid(_elevator_passenger):
+		_elevator_passenger.global_position.y += displacement
+		_elevator_passenger.velocity = Vector3.ZERO
+	var floor_number := clampi(6 - roundi(next_height / 5.0), 0, 6)
+	if floor_number != _elevator_display_floor:
+		_elevator_display_floor = floor_number
+		var direction := "^ " if _elevator_target > _elevator_from else "v "
+		set_elevator_status(direction + ("G" if floor_number == 0 else "B" + str(floor_number)))
+	if progress >= 1.0:
+		_elevator_moving = false
+		_elevator_busy = false
+		var surface := _elevator_target > 0.0
+		set_elevator_status("G" if surface else "B6")
+		_release_passenger()
+		mechanism_cue.emit("chime", elevator_cabin.global_position + Vector3(0, 1, 25))
+		elevator_arrived.emit(surface)
 
 func _process(delta: float) -> void:
 	_clock += delta

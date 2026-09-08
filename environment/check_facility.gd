@@ -28,7 +28,7 @@ func _initialize() -> void:
 	for link in facility.traversal_links:
 		var a: Vector3 = facility.traversal_nodes[link[0]] + Vector3(0, 0.7, 0)
 		var b: Vector3 = facility.traversal_nodes[link[1]] + Vector3(0, 0.7, 0)
-		var query := PhysicsRayQueryParameters3D.create(a, b, 1)
+		var query := PhysicsRayQueryParameters3D.create(a, b, 1, door_rids)
 		var hit: Dictionary = facility.get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty():
 			print("GRAPH EDGE BLOCKED ", link, " at ", hit.position)
