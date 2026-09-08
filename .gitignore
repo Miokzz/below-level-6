@@ -2,6 +2,9 @@
 dist/
 .tools/
 test-output/
+environment/renders*/
+__pycache__/
+*.py[cod]
 *.tmp
 *.log
 *.bak

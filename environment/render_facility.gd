@@ -5,7 +5,11 @@ func _initialize() -> void:
 	call_deferred("_render")
 
 func _render() -> void:
-	var output := ProjectSettings.globalize_path("res://environment/renders")
+	var output_root := ProjectSettings.globalize_path("res://test-output")
+	DirAccess.make_dir_recursive_absolute(output_root)
+	var ignore_file := FileAccess.open(output_root.path_join(".gdignore"), FileAccess.WRITE)
+	ignore_file.close()
+	var output := output_root.path_join("facility")
 	var measure := not ("--screenshots-only" in OS.get_cmdline_user_args())
 	if RenderingServer.get_current_rendering_method() == "gl_compatibility":
 		output += "-compatibility"
