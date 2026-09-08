@@ -131,6 +131,9 @@ func _run() -> void:
 		if tick == 200:
 			observer.begin_chase()
 			_check(observer.world_position().is_equal_approx(pos), "Duplicate chase trigger cannot teleport the pursuing actor or reset its lead-in")
+		if tick == 220:
+			observer.stop()
+			_check(observer.resume_chase() and observer.world_position().is_equal_approx(pos), "Rejected elevator escape can resume pursuit from its exact previous position")
 		if absf(pos.x) < 6.2 and absf(pos.z) < 0.45:
 			crossed_wall = true
 		if absf(pos.x) > 6.25:

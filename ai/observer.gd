@@ -37,6 +37,7 @@ var _catch_seconds: float = 0.0
 var _repath_clock: float = 0.0
 var _gait: float = 0.0
 var _pending_hide: bool = false
+var _pursuit_started: bool = false
 var _astar := AStar3D.new()
 var _grid: Dictionary = {}
 var _sample_cells: Array[Vector2i] = []
@@ -205,6 +206,7 @@ func begin_chase() -> void:
 	_actor.show()
 	_face_player(1.0)
 	state_name = "PURSUIT"
+	_pursuit_started = true
 	# Doors change during the story; refresh clearance after the core unlocks.
 	# Incremental construction fits inside the pursuit's 2.4-second lead-in.
 	_prepare_navigation()
@@ -262,6 +264,19 @@ func stop() -> void:
 		_actor.collision_layer = 0
 		_actor.hide()
 
+func resume_chase() -> bool:
+	if not _pursuit_started or not is_instance_valid(_player) or not is_instance_valid(_actor) or state_name == "CAUGHT":
+		return false
+	if state_name == "PURSUIT":
+		return true
+	state_name = "PURSUIT"
+	_actor.collision_layer = 8
+	_actor.show()
+	_catch_seconds = 0.0
+	_repath_clock = 0.0
+	_rebuild_path()
+	return true
+
 func world_position() -> Vector3:
 	return _actor.global_position if is_instance_valid(_actor) else global_position
 
@@ -271,6 +286,7 @@ func get_event_flags() -> Dictionary:
 func restore_event_flags(flags: Dictionary) -> void:
 	_seen_events = flags.duplicate()
 	_queued_events.clear()
+	_pursuit_started = false
 
 func _is_visible() -> bool:
 	# Sample the full height, so a visible head or legs prevent disappearance.
