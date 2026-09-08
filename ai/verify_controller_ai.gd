@@ -144,5 +144,6 @@ func _run() -> void:
 	_check(caught_count == 1, "Catch signal is not emitted repeatedly")
 	observer.stop()
 	_check(observer.state_name == "ABSENT" and not observer.visible_to_player, "Stop clears pursuit")
+	_check(observer.get_node("Presence").collision_layer == 0, "Stopped presence cannot remain an invisible elevator-door obstruction")
 	print("CONTROLLER_AI_VERIFICATION: ", "PASS" if failures.is_empty() else "FAIL", " / failures=", failures.size())
 	quit(0 if failures.is_empty() else 1)

@@ -52,7 +52,7 @@ var _breadcrumbs: Array[Vector3] = []
 func _ready() -> void:
 	_actor = CharacterBody3D.new()
 	_actor.name = "Presence"
-	_actor.collision_layer = 8
+	_actor.collision_layer = 0
 	_actor.collision_mask = 1
 	_actor.floor_snap_length = 0.25
 	_actor.max_slides = 6
@@ -130,6 +130,7 @@ func _try_sighting() -> void:
 		return
 	_actor.global_position = location
 	_actor.velocity = Vector3.ZERO
+	_actor.collision_layer = 8
 	_actor.show()
 	_face_player(1.0)
 	_current_event = _queued_events.pop_front()
@@ -152,6 +153,7 @@ func _update_watching(delta: float) -> void:
 	var spent := _present_seconds > 95.0
 	if _unseen_seconds > 0.5 and (has_been_noticed or approached or spent or _pending_hide):
 		_actor.hide()
+		_actor.collision_layer = 0
 		state_name = "ABSENT"
 		_current_event = ""
 	# No locomotion in early acts. Its gaze slowly finds the player.
@@ -199,6 +201,7 @@ func begin_chase() -> void:
 		spawn = core
 	_actor.global_position = spawn
 	_actor.velocity = Vector3.ZERO
+	_actor.collision_layer = 8
 	_actor.show()
 	_face_player(1.0)
 	state_name = "PURSUIT"
@@ -256,6 +259,7 @@ func stop() -> void:
 	visible_to_player = false
 	if is_instance_valid(_actor):
 		_actor.velocity = Vector3.ZERO
+		_actor.collision_layer = 0
 		_actor.hide()
 
 func world_position() -> Vector3:
