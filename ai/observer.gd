@@ -251,6 +251,7 @@ func _update_pursuit(delta: float) -> void:
 		_catch_seconds = 0.0
 	if _catch_seconds >= 0.25:
 		state_name = "CAUGHT"
+		_pursuit_started = false
 		_actor.velocity = Vector3.ZERO
 		caught.emit()
 
