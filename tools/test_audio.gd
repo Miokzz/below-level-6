@@ -97,6 +97,13 @@ func _run() -> void:
 	var bus_count := AudioServer.bus_count
 	sound._create_buses()
 	check(bus_count == AudioServer.bus_count, "Reinitialization duplicates audio buses")
+	sound.set_active(false)
+	check(not sound._ambience.playing and not sound._drone.playing, "Main menu kept ambient beds active")
+	sound.set_active(true)
+	check(sound._ambience.playing and sound._drone.playing, "Starting a shift did not restore the ambient beds")
+	paused = true
+	sound.shutdown()
+	check(sound._ambience.stream == null and sound._drone.stream == null and sound._streams.is_empty(), "Paused shutdown retained audio resources")
 	world.queue_free()
 	# The audio server releases stream playback objects on its own mixing thread.
 	await create_timer(.35).timeout

@@ -22,4 +22,11 @@ environment sources update obstruction with low-cost collision queries every
 room reverb. The drone uses a separate Music bus, and radio uses light compression.
 In-game sources inherit pausing; interface clicks remain available during pause.
 
+Radio calls queue once per shift. The subtitle follows the active recording and
+clears when it finishes or is interrupted; toggling subtitles updates an active
+line immediately. Checkpoints retain heard dialogue IDs. Returning to the menu
+stops world audio, and shutdown detaches paused streams before freeing resources.
+Regenerating environmental audio without Windows speech preserves the six shipped
+radio recordings and their entries in the manifest.
+
 Original game audio and the generation code are supplied under the project license.

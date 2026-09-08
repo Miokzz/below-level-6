@@ -42,6 +42,7 @@ var _radio_id := ""
 var _radio_queue: Array[String] = []
 var _radio_heard: Array[String] = []
 var _subtitles_enabled := true
+var _active := true
 
 
 func _ready() -> void:
@@ -165,13 +166,47 @@ func set_tension(value: float) -> void:
 	tension = clampf(value, 0.0, 1.0)
 
 
+func set_active(active: bool) -> void:
+	## Menus stop world beds entirely; pausing an active shift still preserves them.
+	_active = active
+	for source in [_ambience, _drone] + _spatial:
+		if not is_instance_valid(source):
+			continue
+		if active and _started:
+			if not source.playing:
+				source.play()
+		else:
+			source.stop()
+	if not active:
+		clear_cues()
+
+
+func shutdown() -> void:
+	_started = false
+	_active = false
+	_radio_queue.clear()
+	_radio_id = ""
+	for source in get_children():
+		if source is AudioStreamPlayer or source is AudioStreamPlayer3D:
+			source.stop()
+			source.stream = null
+	_active_cues.clear()
+	_streams.clear()
+	_spatial_base.clear()
+	_spatial.clear()
+
+
+func _exit_tree() -> void:
+	shutdown()
+
+
 func set_silence(value: float) -> void:
 	## Used during deliberate narrative silence. The ventilation remains barely audible.
 	silence = clampf(value, 0.0, 1.0)
 
 
 func _process(delta: float) -> void:
-	if not _started:
+	if not _started or not _active:
 		return
 	var ambience_target := -23.0 - 15.0 * silence
 	var drone_target := lerpf(-46.0, -15.0, pow(tension, 1.5)) - 22.0 * silence
