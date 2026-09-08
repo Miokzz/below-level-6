@@ -50,6 +50,7 @@ var _feed_camera: Camera3D
 var _double: Node3D
 var _player_proxy: Node3D
 var _feed_index := 0
+var _feed_clock := 0.0
 var _safe_snapshot: Dictionary = {}
 var _ending_seen := false
 
@@ -141,6 +142,8 @@ func _setup_cctv() -> void:
 	_feed_camera.cull_mask = 1 | (1 << 19)
 	_feed.add_child(_feed_camera)
 	_feed_camera.current = true
+	_feed_camera.global_position = level.camera_points[0].position
+	_feed_camera.look_at(level.camera_points[0].target)
 	level.bind_cctv_texture(_feed.get_texture())
 	_double = observer.create_body()
 	world.add_child(_double)
@@ -150,7 +153,7 @@ func _setup_cctv() -> void:
 	world.add_child(_player_proxy)
 	_player_proxy.scale = Vector3(0.82, 0.77, 0.82)
 	_set_visual_layer(_player_proxy, 1 << 19)
-	player.camera.cull_mask = 1
+	player.camera.cull_mask = 1 | (1 << 18)
 
 func _set_visual_layer(node: Node, mask_value: int) -> void:
 	if node is GeometryInstance3D: node.layers = mask_value
@@ -195,6 +198,7 @@ func start_new_game() -> void:
 	_safe_snapshot = {}
 	observer.restore_event_flags({})
 	playing = true
+	sound.set_active(true)
 	stage = Stage.ARRIVAL
 	level.set_stage(stage)
 	level.reset_elevator(true)
@@ -245,6 +249,7 @@ func continue_game() -> void:
 	for pump in repairs.pumps: level.set_pump_state(pump, repairs.pumps[pump])
 	_safe_snapshot = data.duplicate(true)
 	playing = true
+	sound.set_active(true)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	hud.show_game()
 	_feedback_message("SHIFT RECORD RESTORED / " + _objective(), 7.0)
@@ -257,6 +262,7 @@ func return_to_menu() -> void:
 	modal_context = ""
 	observer.stop()
 	sound.clear_cues()
+	sound.set_active(false)
 	_double.hide()
 	_feed.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	player.locked = true
@@ -307,6 +313,11 @@ func _process(delta: float) -> void:
 	hud.set_objective(_objective())
 	_player_proxy.position = player.position
 	_player_proxy.rotation.y = player.rotation.y
+	_feed_clock += delta
+	if stage >= Stage.NETWORK_ONLINE and stage < Stage.FAILURE and _feed_clock >= 0.5:
+		_feed_clock = 0.0
+		if player.position.distance_to(level.markers.cctv) < 14.0:
+			_feed.render_target_update_mode = SubViewport.UPDATE_ONCE
 	_checkpoint_clock += delta
 	if _checkpoint_clock >= 20.0 and stage >= Stage.OPERATIONS and stage <= Stage.CORE_REVEAL:
 		_checkpoint()
@@ -408,7 +419,7 @@ func _open_choices(id: String, title: String, body: String, choices: Array) -> v
 
 func _close_modal() -> void:
 	_double.hide()
-	_feed.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	_feed.render_target_update_mode = SubViewport.UPDATE_ONCE if stage >= Stage.NETWORK_ONLINE else SubViewport.UPDATE_DISABLED
 	if not playing:
 		return_to_menu()
 		return
@@ -459,10 +470,14 @@ func _choice(id: String) -> void:
 		var allowed := {"power": ["isolate", "fit_fuse", "circuit", "reset_power"], "cooling": ["valve", "test_pressure", "reset_cooling"], "network": ["fit_module", "link", "commit_network", "reset_network"]}
 		var action := id.get_slice(":", 0)
 		if action not in allowed[modal_context]: return
+		var context := modal_context
 		var feedback: String = repairs.operate(action, int(id.get_slice(":", 1)))
+		var completed: bool = (repairs.power_solved and stage < Stage.POWER_ONLINE) or (repairs.cooling_solved and stage < Stage.COOLING_ONLINE) or (repairs.network_solved and stage < Stage.NETWORK_ONLINE)
+		if completed: _close_modal()
 		_sync_repair_progress()
 		sound.play_cue("error" if "failed" in feedback or "tripped" in feedback or "blocked" in feedback else "click")
-		_open_puzzle(modal_context, feedback)
+		if completed: _feedback_message(feedback, 7.0)
+		else: _open_puzzle(context, feedback)
 		_checkpoint()
 	elif modal_context == "cctv" and id.begins_with("feed:"):
 		_open_feed(int(id.get_slice(":", 1)))
@@ -551,6 +566,7 @@ func _set_stage(next: int) -> void:
 	level.set_terminal_status("network", "NETWORK ONLINE\nCOMMAND SOURCE / SECTOR 06" if repairs.network_solved else "SYNCHRONIZATION LOST\nOFFLINE BRIDGE REQUIRED")
 	level.set_terminal_status("operations", _system_status())
 	if stage >= Stage.CORE_REVEAL: level.set_door("core", true)
+	if stage == Stage.NETWORK_ONLINE: _feed.render_target_update_mode = SubViewport.UPDATE_ONCE
 	if stage == Stage.CHASE:
 		level.set_terminal_status("power", "LIFT BRAKE / LOCAL RELEASE")
 		level.set_terminal_status("cooling", "LIFT LINE / EMERGENCY PURGE")
@@ -574,7 +590,7 @@ func _objective() -> String:
 		Stage.CHASE:
 			if not repairs.brake_released: return "RELEASE LIFT BRAKE / C — Electrical terminal. SHIFT / Run"
 			if not repairs.line_purged: return "PURGE LIFT LINE / B — Cooling terminal. Keep moving"
-			return "RETURN TO THE LIFT / F — Use the SURFACE button inside"
+			return "REACH THE LIFT / F — Rear service passage > Server hall > Hub. Use SURFACE inside"
 		Stage.ELEVATOR_ESCAPE: return "SURFACE / ASCENDING"
 	return "END OF SHIFT"
 
@@ -615,7 +631,7 @@ func _escape_control(id: String) -> void:
 		level.set_elevator_status("SURFACE / READY")
 		level.set_door("elevator", true)
 		sound.play_cue("cooling", level.markers.cooling)
-		_feedback_message("LIFT READY / Return through the hub to F / SURFACE LIFT", 6.0)
+		_feedback_message("LIFT READY / Use the rear service passage, then A / SERVER HALL to reach the hub and lift.", 9.0)
 	else:
 		_feedback_message("Remote access lost. Use local lift interlocks.")
 
@@ -635,6 +651,7 @@ func _escape(token: int) -> void:
 		level.set_door("elevator", true)
 		player.look_only = false
 		sound.stop_cue("elevator")
+		observer.resume_chase()
 		return
 	sound.stop_cue("elevator")
 	sound.set_silence(1.0)
@@ -670,7 +687,7 @@ func _caught() -> void:
 	modal_context = "death"
 	player.locked = true
 	sound.clear_cues()
-	sound.play_cue("failure")
+	sound.play_cue("error")
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	get_tree().paused = true
 	hud.show_choices("SIGNAL LOST", "Operator connection terminated.\n\nYour repairs and credentials are retained at the core airlock checkpoint.\nSHIFT / Run. The presence moves more slowly while observed.", [_option("retry", "RETRY FROM CHECKPOINT"), _option("menu", "MAIN MENU")], false)

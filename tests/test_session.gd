@@ -60,9 +60,12 @@ func _run() -> void:
 	check(not game.level.is_elevator_moving(), "No orphaned elevator journey remains after restart")
 	game.return_to_menu()
 	paused = false
-	root.remove_child(game)
-	game.free()
-	await frames(3)
+	game.sound.shutdown()
+	game.queue_free()
+	# Accelerated simulation still needs the real audio mixer to release playback.
+	for _tick in range(10):
+		await process_frame
+		OS.delay_msec(35)
 	for suffix in ["", ".backup", ".tmp"]:
 		var path: String = "user://test_session_checkpoint.json" + suffix
 		if FileAccess.file_exists(path): DirAccess.remove_absolute(path)

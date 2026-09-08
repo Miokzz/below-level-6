@@ -397,7 +397,6 @@ func _render_settings() -> void:
 	_toggle(fields, "Invert vertical look", "invert_y")
 	_select(fields, "Head movement", "head_bob", ["Off", "Subtle", "Normal"], [0, 1, 2])
 	_toggle(fields, "Reduce camera shake", "reduced_shake")
-	_toggle(fields, "Reduce light flashes", "reduced_flashes")
 	fields.add_child(_label("DISPLAY", 22, AMBER))
 	_select(fields, "Graphics quality", "preset", ["Low", "Medium", "High", "Ultra"], [0, 1, 2, 3])
 	_select(fields, "Window mode", "window_mode", ["Windowed", "Borderless", "Fullscreen"], [0, 1, 2])
