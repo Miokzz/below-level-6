@@ -641,6 +641,8 @@ func reset_interactions() -> void:
 		set_pump_state(id, false)
 	for id in _terminal_defaults:
 		set_terminal_status(id, _terminal_defaults[id])
+	for screen in _screens:
+		_update_monitor_status(screen, 0)
 
 func _note(id: String, heading: String, text_value: String, pos: Vector3, yaw: float = 0.0) -> void:
 	_box(pos, Vector3(0.74, 0.96, 0.025), "paper", false, yaw)
@@ -916,6 +918,11 @@ func _cooling() -> void:
 	_box(Vector3(12.6, 0.007, -8), Vector3(1.6, 0.01, 3.2), "water")
 	_hazard_line(Vector3(11.2, 0.025, -7.9), 10.7, true)
 	_fixture(Vector3(19, 5.2, -16), 1.8, 0, AMBER, "rear", 1.3)
+	_sign("SERVER HALL / REAR ROUTE", Vector3(19, 3.0, -14.1), 4.5, 0, CYAN)
+	for x in [17.4, 20.6]:
+		_box(Vector3(x, 4.38, -14.1), Vector3(0.055, 2.1, 0.055), "steel_light")
+	_label("TURN LEFT AT THE REAR JUNCTION", Vector3(19, 2.52, -14.05), 31, COLD, 0, 0.0031)
+	_sign("<  A / SERVER HALL", Vector3(18.9, 2.7, -21.78), 4.2, 0, CYAN)
 	_pump_switch("pump_a", "PUMP A / PRIMARY", Vector3(13, 1.45, -0.32), PI)
 	_pump_switch("pump_b", "PUMP B / RETURN", Vector3(21.72, 1.45, -15.5), -PI * 0.5)
 
@@ -938,6 +945,8 @@ func _pump_switch(id: String, caption: String, pos: Vector3, yaw: float) -> void
 
 func _server_hall() -> void:
 	_sign("A / COMPUTE HALL", Vector3(-15, 3.2, -17.76), 5.3)
+	_sign("F / LIFT VIA SERVER HALL", Vector3(-15, 2.8, -18.25), 4.6, PI, CYAN)
+	_sign("HUB / SURFACE LIFT", Vector3(-8.28, 2.65, -2), 3.0, -PI * 0.5, CYAN)
 	for z in [-2.0, -7.0, -12.0, -16.5]:
 		_fixture(Vector3(-15, 3.82, z), 2.0, 0, Color("93b7c1"), "server", 1.9)
 		_box(Vector3(-15, 3.99, z), Vector3(13.6, 0.15, 0.22), "steel")
@@ -1132,6 +1141,7 @@ func _monitor(pos: Vector3, caption: String, width: float = 1.25) -> MeshInstanc
 	_screens.append(screen)
 	var caption_node := _label(caption, pos + Vector3(0, 0, 0.14), 22, CYAN, 0, 0.0026)
 	screen.set_meta("caption_node", caption_node)
+	screen.set_meta("default_caption", caption)
 	_box(pos + Vector3(0, -width * 0.37, -0.015), Vector3(0.10, width * 0.23, 0.12), "steel_light")
 	_box(pos + Vector3(0, -width * 0.48, 0), Vector3(width * 0.4, 0.045, 0.3), "steel")
 	_box(pos + Vector3(width * 0.38, -width * 0.22, 0.13), Vector3(0.025, 0.025, 0.02), "cyan")
@@ -1191,13 +1201,34 @@ func set_stage(stage: int) -> void:
 			factor = 0.57
 		light.light_energy = 0.0 if light.get_meta("scare_disabled", false) else base * factor
 	for screen in _screens:
+		_update_monitor_status(screen, stage)
 		if screen.get_meta("live_feed", false):
 			continue
-		screen.material_override = materials["screen"] if stage >= 7 else materials["screen_dead"]
+		screen.material_override = materials["screen"] if stage >= 7 and stage < 11 else materials["screen_dead"]
 	if stage >= 10:
 		set_door("core", true)
 	if previous == 0 and stage >= 1 and not _elevator_busy:
 		set_door("elevator", true)
+
+func _update_monitor_status(screen: MeshInstance3D, stage: int) -> void:
+	if not screen.has_meta("caption_node"):
+		return
+	var caption: Label3D = screen.get_meta("caption_node")
+	var original: String = screen.get_meta("default_caption")
+	var heading := original.get_slice("\n", 0) if original.begins_with("CAM") else "OPERATIONS BUS"
+	if stage >= 11:
+		caption.text = heading + "\nREMOTE LINK LOST\nLOCAL DISPLAY ONLY"
+		caption.modulate = AMBER
+	elif stage >= 7:
+		caption.text = heading + ("\nCHANNEL AVAILABLE\nSELECT AT CONSOLE" if original.begins_with("CAM") else "\nTELEMETRY ONLINE\nWORK ORDER 0214-06")
+		caption.modulate = CYAN
+	elif stage >= 3:
+		caption.text = heading + "\nPOWER ONLINE\nNETWORK OFFLINE"
+		caption.modulate = COLD
+	else:
+		caption.text = original
+		caption.modulate = CYAN
+	caption.visible = not screen.get_meta("live_feed", false) or stage < 7 or stage >= 11
 
 func bind_cctv_texture(texture: Texture2D) -> void:
 	var screen: MeshInstance3D = anomaly_nodes["cctv_screen"]
@@ -1211,8 +1242,7 @@ func bind_cctv_texture(texture: Texture2D) -> void:
 	# its security-room feed looks back at the physical video wall.
 	screen.layers = 1 << 18
 	screen.set_meta("live_feed", true)
-	var caption_node: Label3D = screen.get_meta("caption_node")
-	caption_node.visible = false
+	_update_monitor_status(screen, _stage)
 
 func apply_quality(preset: int) -> void:
 	var shadow_count := 0
